@@ -2,6 +2,7 @@ const { validationResult } = require('express-validator');
 const fs = require('fs');
 const path = require('path');
 
+const io = require('../socket');
 const Post = require('../models/post');
 const User = require('../models/user');
 
@@ -14,6 +15,7 @@ exports.getPosts = async (req, res, next) => {
 
     const posts = await Post.find()
       .populate('creator')
+      .sort({ createdAt: -1 })
       .skip((currentPage - 1) * perPage)
       .limit(perPage);
 
@@ -66,6 +68,10 @@ exports.createPost = async (req, res, next) => {
     user.posts.push(post);
     await user.save();
 
+    io.getI0().emit('posts', {
+      action: 'create',
+      post: post
+    });
     res.status(201).json({
       message: 'Post created successfully!',
       post: post,
@@ -130,7 +136,7 @@ exports.updatePost = async (req, res, next) => {
   }
 
   try {
-    const post = await Post.findById(postId);
+    const post = await Post.findById(postId).populate('creator');
 
     if (!post) {
       const error = new Error('Could not find post.');
@@ -138,7 +144,7 @@ exports.updatePost = async (req, res, next) => {
       throw error;
     }
 
-    if (post.creator.toString() !== req.userId) {
+    if (post.creator._id.toString() !== req.userId) {
       const error = new Error('Not Authorised');
       error.statusCode = 403;
       throw error;
@@ -152,6 +158,11 @@ exports.updatePost = async (req, res, next) => {
     post.imageUrl = imageUrl;
     post.content = content;
     const result = await post.save();
+
+    io.getI0().emit('posts', {
+      action: 'update',
+      post: result
+    });
     res.status(200).json({ message: 'Post updated!', post: result });
   }
 
@@ -190,6 +201,10 @@ exports.deletePost = async (req, res, next) => {
     user.posts.pull(postId);
     await user.save();
 
+    io.getI0().emit('posts', {
+      action: 'delete',
+      post: postId
+    });
     res.status(200).json({ message: 'Deleted post.' });
   }
   catch (err) {
